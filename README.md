@@ -1,4 +1,6 @@
-# Hydra example Launcher plugin
+# Hydra htcondor Launcher plugin
+
+the htcondor python bindings and a setup tutorial can be found [here](https://htcondor.readthedocs.io/en/24.x/apis/python-bindings/tutorials/index.html).
 
 This plugin provides an example for how to write a custom Launcher for Hydra.
 The configuration for this launcher is in packages with the plugin:
