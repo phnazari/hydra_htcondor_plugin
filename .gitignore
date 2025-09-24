@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.cache/
+.ruff_cache/
+
+# Sytem files
+**/.DS_store
+*.DS_Store
+
+# Virtual environments
+.venv
+data/
+!**/mad_utils/data/
+outputs/
+multirun/
+scratch/
+dev/
