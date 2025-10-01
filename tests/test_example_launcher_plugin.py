@@ -9,21 +9,21 @@ from hydra.test_utils.launcher_common_tests import (
 )
 
 
-from hydra_plugins.example_launcher_plugin.example_launcher import ExampleLauncher
+from hydra_plugins.hydra_htcondor_launcher.htcondor_launcher import HTCondorLauncher
 
 
 def test_discovery() -> None:
     # Tests that this plugin can be discovered via the plugins subsystem when looking for Launchers
-    assert ExampleLauncher.__name__ in [
+    assert HTCondorLauncher.__name__ in [
         x.__name__ for x in Plugins.instance().discover(Launcher)
     ]
 
 
-@mark.parametrize("launcher_name, overrides", [("example", [])])
-class TestExampleLauncher(LauncherTestSuite):
+@mark.parametrize("launcher_name, overrides", [("htcondor_launcher", [])])
+class TestHTCondorLauncher(LauncherTestSuite):
     """
     Run the Launcher test suite on this launcher.
-    Note that hydra/launcher/example.yaml should be provided by this launcher.
+    Note that hydra/launcher/htcondor.yaml should be provided by this launcher.
     """
 
     pass
@@ -31,9 +31,9 @@ class TestExampleLauncher(LauncherTestSuite):
 
 @mark.parametrize(
     "task_launcher_cfg, extra_flags",
-    [({}, ["-m", "hydra/launcher=example"])],
+    [({}, ["-m", "hydra/launcher=htcondor_launcher"])],
 )
-class TestExampleLauncherIntegration(IntegrationTestSuite):
+class TestHTCondorLauncherIntegration(IntegrationTestSuite):
     """
     Run this launcher through the integration test suite.
     """

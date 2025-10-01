@@ -1,0 +1,36 @@
+# @package _global_
+defaults:
+  - override /hydra/launcher: htcondor_launcher
+
+# HTCondor launcher configuration
+# This configuration will be used when running multirun jobs with HTCondor
+
+# Custom executable (optional) - if not specified, uses Python
+# executable: "/home/pnazari/cluster/htcondor/cuda_wrapper.sh"
+
+# Output directory for HTCondor files
+output_dir: "outputs"
+
+# Job output files with HTCondor variable substitution
+# You can use $(Cluster), $(Process), and any custom variables
+error: "outputs/$(Cluster)_$(Process).err"
+output: "outputs/$(Cluster)_$(Process).out" 
+log: "outputs/$(Cluster)_$(Process).log"
+
+# HTCondor job requirements
+request_memory: "64000"  # Memory in MB
+request_cpus: "8"        # Number of CPUs
+request_gpus: "1"        # Number of GPUs
+
+# HTCondor job constraints
+requirements: "TARGET.CUDAGlobalMemoryMb > 64000"
+
+# Maximum job runtime in seconds (8 hours = 28800 seconds)
+MaxTime: 28800
+
+# HTCondor working directory (will be created under sweep output directory)
+htcondor_folder: "${hydra.sweep.dir}/.htcondor"
+
+# Additional HTCondor parameters can be added here
+# Any parameter not in the reserved list will be passed directly to HTCondor
+# periodic_remove: "(JobStatus =?= 2) && ((CurrentTime - JobCurrentStartDate) >= $(MaxTime))"
