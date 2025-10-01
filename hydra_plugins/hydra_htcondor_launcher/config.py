@@ -1,6 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Optional
 
 from hydra.core.config_store import ConfigStore
 
@@ -15,7 +15,7 @@ class BaseQueueConf:
     # the arguments passed to the executable as a string
     arguments: Optional[str] = None
 
-    htcondor_folder: str = "${hydra.sweep.dir}/.htcondor/%j"
+    #htcondor_folder: str = "${hydra.sweep.dir}/.htcondor/%j"
 
     # the error directory
     error: str = "${hydra.sweep.dir}/.htcondor/%j/err"
