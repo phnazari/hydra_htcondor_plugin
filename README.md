@@ -24,7 +24,7 @@ The HTCondor launcher configuration supports all standard HTCondor submission pa
 
 ```yaml title="hydra_plugins/hydra_htcondor_launcher/conf/hydra/launcher/htcondor.yaml"
 # Custom executable (optional) - if not specified, uses Python
-executable: "/home/pnazari/cluster/htcondor/cuda_wrapper.sh"
+executable: "/path/to/executable.sh"
 
 # Output files with HTCondor variable substitution
 error: "outputs/$(Cluster)_$(Process).err"

@@ -6,7 +6,7 @@ defaults:
 # This configuration will be used when running multirun jobs with HTCondor
 
 # Custom executable (optional) - if not specified, uses Python
-# executable: "/home/pnazari/cluster/htcondor/cuda_wrapper.sh"
+# executable: "/path/to/cuda_wrapper.sh"
 
 # Output directory for HTCondor files
 output_dir: "outputs"
