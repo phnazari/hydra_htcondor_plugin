@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+import cloudpickle
+
 from hydra.core.singleton import Singleton
 from hydra.core.utils import (
     JobReturn,
@@ -20,6 +22,52 @@ from .config import BaseQueueConf
 
 log = logging.getLogger(__name__)
 
+# Runner script that gets executed by HTCondor on compute nodes
+RUNNER_SCRIPT = '''#!/usr/bin/env python3
+"""HTCondor job runner - unpickles and executes the Hydra task."""
+import sys
+from pathlib import Path
+
+import cloudpickle
+
+def main():
+    if len(sys.argv) != 2:
+        print(f"Usage: {sys.argv[0]} <job_pickle_file>", file=sys.stderr)
+        sys.exit(1)
+
+    job_pickle = Path(sys.argv[1])
+    result_pickle = job_pickle.with_suffix(".result.pkl")
+
+    try:
+        # Load the pickled job
+        with open(job_pickle, "rb") as f:
+            job_data = cloudpickle.load(f)
+
+        launcher = job_data["launcher"]
+        args = job_data["args"]
+
+        # Execute the job
+        result = launcher(*args)
+
+        # Save the result
+        with open(result_pickle, "wb") as f:
+            cloudpickle.dump({"status": "success", "result": result}, f)
+
+    except Exception as e:
+        import traceback
+        # Save the exception
+        with open(result_pickle, "wb") as f:
+            cloudpickle.dump({
+                "status": "error",
+                "exception": e,
+                "traceback": traceback.format_exc()
+            }, f)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+'''
+
 
 class HTCondorLauncher(Launcher):
     """HTCondor launcher for Hydra multirun jobs using HTCondor Python bindings."""
@@ -31,7 +79,6 @@ class HTCondorLauncher(Launcher):
                 v = OmegaConf.to_container(v, resolve=True)
             self.params[k] = v
 
-        # Debug: print the loaded parameters
         log.info(f"HTCondor launcher initialized with params: {self.params}")
 
         self.config: Optional[DictConfig] = None
@@ -85,7 +132,7 @@ class HTCondorLauncher(Launcher):
         htcondor_dir = Path(htcondor_folder)
         htcondor_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create job parameters like submitit does
+        # Create job parameters
         job_params: List[Any] = []
         for idx, overrides in enumerate(job_overrides):
             job_idx = initial_job_idx + idx
@@ -101,13 +148,13 @@ class HTCondorLauncher(Launcher):
                 )
             )
 
-        # Create HTCondor executor
-        executor = self._create_htcondor_executor(htcondor, sweep_dir)
+        # Create HTCondor executor with reference to this launcher
+        executor = HTCondorExecutor(htcondor_dir, self.params, htcondor, self)
 
-        # Submit jobs using map_array pattern like submitit
+        # Submit jobs
         jobs = executor.map_array(job_params)
 
-        # Return results like submitit does
+        # Wait for results
         return [j.result() for j in jobs]
 
     def __call__(
@@ -142,25 +189,19 @@ class HTCondorLauncher(Launcher):
             job_subdir_key="hydra.sweep.subdir",
         )
 
-    def _create_htcondor_executor(self, htcondor, sweep_dir):
-        """Create HTCondor executor following submitit pattern."""
-        # Create HTCondor working directory using config or default
-        htcondor_folder = self.params.get(
-            "htcondor_folder", "${hydra.sweep.dir}/.htcondor"
-        )
-        # Resolve the hydra variable
-        htcondor_folder = htcondor_folder.replace("${hydra.sweep.dir}", str(sweep_dir))
-        htcondor_dir = Path(htcondor_folder)
-        htcondor_dir.mkdir(exist_ok=True)
-
-        return HTCondorExecutor(htcondor_dir, self.params, htcondor)
-
 
 class HTCondorJob:
     """HTCondor job wrapper for tracking and result collection."""
 
     def __init__(
-        self, cluster_id, job_id, htcondor_module, log_file, output_file, error_file
+        self,
+        cluster_id: int,
+        job_id: int,
+        htcondor_module: Any,
+        log_file: str,
+        output_file: str,
+        error_file: str,
+        result_pickle: str,
     ):
         self.cluster_id = cluster_id
         self.job_id = job_id
@@ -168,8 +209,9 @@ class HTCondorJob:
         self.log_file = Path(log_file)
         self.output_file = Path(output_file)
         self.error_file = Path(error_file)
+        self.result_pickle = Path(result_pickle)
 
-    def result(self, timeout=None):
+    def result(self, timeout: Optional[float] = None) -> JobReturn:
         """Wait for job completion and return JobReturn."""
         import time
 
@@ -218,106 +260,130 @@ class HTCondorJob:
 
             time.sleep(5)  # Poll every 5 seconds
 
-        # Job completed, check exit code and create result
-        result = JobReturn()
+        # Job completed - read result from pickle file
+        return self._load_result()
 
-        # Read exit code from log file if available
-        exit_code = 0
-        if self.log_file.exists():
-            try:
-                with open(self.log_file, "r") as f:
-                    content = f.read()
-                    # Look for exit code in HTCondor log
-                    import re
-
-                    match = re.search(
-                        r"Job terminated\.\s+\(.*\)\s+Normal termination \(return value (\d+)\)",
-                        content,
-                    )
-                    if match:
-                        exit_code = int(match.group(1))
-            except Exception as e:
-                log.warning(f"Could not read exit code from log file: {e}")
-
-        if exit_code == 0:
-            result.status = JobStatus.COMPLETED
-        else:
+    def _load_result(self) -> JobReturn:
+        """Load job result from pickle file."""
+        if not self.result_pickle.exists():
+            # No result file - check error file for clues
+            result = JobReturn()
             result.status = JobStatus.FAILED
-            # Read error output if available
-            error_msg = f"Job failed with exit code {exit_code}"
+            error_msg = "Job completed but no result file found"
             if self.error_file.exists():
                 try:
-                    with open(self.error_file, "r") as f:
-                        stderr_content = f.read().strip()
-                        if stderr_content:
-                            error_msg += f"\nStderr: {stderr_content}"
+                    stderr_content = self.error_file.read_text().strip()
+                    if stderr_content:
+                        error_msg += f"\nStderr: {stderr_content}"
                 except Exception:
                     pass
             result.exception = RuntimeError(error_msg)
+            return result
 
-        return result
+        try:
+            with open(self.result_pickle, "rb") as f:
+                data = cloudpickle.load(f)
+
+            if data["status"] == "success":
+                return data["result"]
+            else:
+                # Job failed with exception
+                result = JobReturn()
+                result.status = JobStatus.FAILED
+                result.exception = data.get("exception", RuntimeError("Unknown error"))
+                return result
+
+        except Exception as e:
+            result = JobReturn()
+            result.status = JobStatus.FAILED
+            result.exception = RuntimeError(f"Failed to load result pickle: {e}")
+            return result
 
 
 class HTCondorExecutor:
-    """HTCondor executor following submitit pattern."""
+    """HTCondor executor that serializes jobs via pickle."""
 
-    def __init__(self, folder, params, htcondor_module):
+    def __init__(
+        self,
+        folder: Path,
+        params: Dict[str, Any],
+        htcondor_module: Any,
+        launcher: HTCondorLauncher,
+    ):
         self.folder = Path(folder)
         self.params = params
         self.htcondor = htcondor_module
+        self.launcher = launcher
+        self._setup_runner_script()
 
-    def map_array(self, job_params):
-        """Submit array of jobs to HTCondor."""
+    def _setup_runner_script(self) -> Path:
+        """Create the runner script in the htcondor folder."""
+        runner_path = self.folder / "htcondor_runner.py"
+        runner_path.write_text(RUNNER_SCRIPT)
+        runner_path.chmod(0o755)
+        self._runner_path = runner_path
+        return runner_path
+
+    def map_array(self, job_params: List[Any]) -> List["HTCondorJob"]:
+        """Submit array of jobs to HTCondor using pickle serialization."""
         jobs = []
         schedd = self.htcondor.Schedd()
 
-        # Get output directory from config
-        output_dir = self.params.get("output_dir", str(self.folder))
-
         for job_param in job_params:
-            overrides, _, job_idx, job_id, _ = job_param
+            overrides, job_dir_key, job_idx, job_id, singleton_state = job_param
             lst = " ".join(filter_overrides(overrides))
             log.info(f"\t#{job_idx} : {lst}")
 
-            # Create override string for command line
-            override_str = " ".join([f"'{override}'" for override in overrides])
+            # Create job-specific paths
+            job_dir = self.folder / f"job_{job_idx}"
+            job_dir.mkdir(exist_ok=True)
 
-            # Create command that runs the same script with specific overrides
-            cmd_args = f"-m example.my_app {override_str}"
+            job_pickle = job_dir / "job.pkl"
+            result_pickle = job_dir / "job.result.pkl"
+            job_output = job_dir / "job.out"
+            job_error = job_dir / "job.err"
+            job_log = job_dir / "job.log"
 
-            # Create unique file names for this job
-            job_output = f"{output_dir}/job_{job_idx}.out"
-            job_error = f"{output_dir}/job_{job_idx}.err"
-            job_log = f"{output_dir}/job_{job_idx}.log"
+            # Serialize the launcher and job arguments
+            job_data = {
+                "launcher": self.launcher,
+                "args": (overrides, job_dir_key, job_idx, job_id, singleton_state),
+            }
 
-            # Create HTCondor submit description using config values
+            with open(job_pickle, "wb") as f:
+                cloudpickle.dump(job_data, f)
+
+            # Create HTCondor submit description
             submit_dict = {
-                "executable": self.params.get("executable", sys.executable),
-                "arguments": cmd_args,
-                "output": job_output,
-                "error": job_error,
-                "log": job_log,
+                "executable": sys.executable,
+                "arguments": f"{self._runner_path} {job_pickle}",
+                "output": str(job_output),
+                "error": str(job_error),
+                "log": str(job_log),
                 "request_memory": str(self.params.get("request_memory", "4000")),
                 "request_cpus": str(self.params.get("request_cpus", "1")),
                 "request_gpus": str(self.params.get("request_gpus", "0")),
                 "should_transfer_files": "YES",
+                "transfer_input_files": f"{job_pickle},{self._runner_path}",
                 "when_to_transfer_output": "ON_EXIT",
+                "transfer_output_files": str(result_pickle.name),
+                "transfer_output_remaps": f'"{result_pickle.name}={result_pickle}"',
                 "getenv": "True",
+                "initialdir": str(job_dir),
             }
 
-            # Add requirements if specified in config
+            # Add requirements if specified
             if "requirements" in self.params:
                 submit_dict["requirements"] = str(self.params["requirements"])
 
             # Add MaxTime and periodic_remove if specified
             if "MaxTime" in self.params:
                 submit_dict["MaxTime"] = str(self.params["MaxTime"])
-                # Add periodic remove based on MaxTime
                 submit_dict["periodic_remove"] = (
                     f"(JobStatus =?= 2) && ((CurrentTime - JobCurrentStartDate) >= {self.params['MaxTime']})"
                 )
 
-            # Add any additional custom parameters from config
+            # Add any additional custom parameters
             reserved_keys = {
                 "executable",
                 "arguments",
@@ -328,8 +394,12 @@ class HTCondorExecutor:
                 "request_cpus",
                 "request_gpus",
                 "should_transfer_files",
+                "transfer_input_files",
                 "when_to_transfer_output",
+                "transfer_output_files",
+                "transfer_output_remaps",
                 "getenv",
+                "initialdir",
                 "use_htcondor",
                 "output_dir",
                 "htcondor_folder",
@@ -347,14 +417,15 @@ class HTCondorExecutor:
             cluster_id = submit_result.cluster()
             log.info(f"Submitted job {job_idx} as HTCondor job {cluster_id}.0")
 
-            # Create HTCondorJob wrapper for tracking
+            # Create HTCondorJob wrapper
             htcondor_job = HTCondorJob(
                 cluster_id=cluster_id,
-                job_id=0,  # Single job per cluster in this case
+                job_id=0,
                 htcondor_module=self.htcondor,
-                log_file=job_log,
-                output_file=job_output,
-                error_file=job_error,
+                log_file=str(job_log),
+                output_file=str(job_output),
+                error_file=str(job_error),
+                result_pickle=str(result_pickle),
             )
             jobs.append(htcondor_job)
 

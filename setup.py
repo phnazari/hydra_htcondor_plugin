@@ -5,11 +5,11 @@ from setuptools import find_namespace_packages, setup
 with open("README.md") as fh:
     LONG_DESC = fh.read()
     setup(
-        name="hydra-example-launcher",
-        version="1.0.0",
-        author="Omry Yadan",
-        author_email="omry@fb.com",
-        description="Example Hydra Launcher plugin",
+        name="hydra-htcondor-launcher",
+        version="0.1.0",
+        author="Your Name",
+        author_email="your@email.com",
+        description="HTCondor Launcher plugin for Hydra",
         long_description=LONG_DESC,
         long_description_content_type="text/markdown",
         url="https://github.com/facebookresearch/hydra/",
