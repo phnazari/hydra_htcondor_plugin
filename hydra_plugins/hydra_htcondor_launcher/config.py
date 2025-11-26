@@ -1,64 +1,31 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Any, Optional
 
 from hydra.core.config_store import ConfigStore
 
 
 @dataclass
-class BaseQueueConf:
-    """Configuration shared by all executors"""
-
-    # the executable
-    executable: str = "test.py"
-
-    # the arguments passed to the executable as a string
-    arguments: Optional[str] = None
-
-    #htcondor_folder: str = "${hydra.sweep.dir}/.htcondor/%j"
-
-    # the error directory
-    error: str = "${hydra.sweep.dir}/.htcondor/%j/err"
-    # the output directory
-    output: str = "${hydra.sweep.dir}/.htcondor/%j/out"
-    # the log directory
-    log: str = "${hydra.sweep.dir}/.htcondor/%j/log"
-
-    request_memory: str = "4000"
-
-    request_cpus: str = "1"
-
-    request_gpus: str = "0"
-
-    requirements: Optional[str] = None
-
-    # maximum time for the job in minutes
-    MaxTime: int = 8 * 60
-
-
-@dataclass
-class HTCondorQueueConf(BaseQueueConf):
-    """HTCondor configuration overrides and specific parameters"""
+class HTCondorQueueConf:
+    """HTCondor launcher configuration."""
 
     _target_: str = (
         "hydra_plugins.hydra_htcondor_launcher.htcondor_launcher.HTCondorLauncher"
     )
 
+    # HTCondor resource requests
+    request_memory: str = "4000"
+    request_cpus: str = "1"
+    request_gpus: str = "0"
 
-# @dataclass
-# class LocalQueueConf(BaseQueueConf):
-#    _target_: str = (
-#        "hydra_plugins.hydra_htcondor_launcher.htcondor_launcher.LocalLauncher"
-#    )
+    # Optional job constraints (e.g., "TARGET.CUDAGlobalMemoryMb > 40000")
+    requirements: Optional[str] = None
 
+    # Maximum job runtime in seconds (default: 8 hours)
+    MaxTime: int = 28800
 
-# finally, register two different choices:
-# ConfigStore.instance().store(
-#    group="hydra/launcher",
-#    name="submitit_local",
-#    node=LocalQueueConf(),
-#    provider="submitit_launcher",
-# )
+    # HTCondor working directory
+    htcondor_folder: str = "${hydra.sweep.dir}/.htcondor"
 
 
 ConfigStore.instance().store(
