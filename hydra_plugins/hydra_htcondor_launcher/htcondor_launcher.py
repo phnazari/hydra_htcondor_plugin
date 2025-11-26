@@ -18,7 +18,8 @@ from hydra.plugins.launcher import Launcher
 from hydra.types import HydraContext, TaskFunction
 from omegaconf import DictConfig, OmegaConf, open_dict
 
-from .config import BaseQueueConf
+# Import config module to trigger ConfigStore registration
+from . import config as _  # noqa: F401
 
 log = logging.getLogger(__name__)
 

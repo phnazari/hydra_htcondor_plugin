@@ -508,8 +508,9 @@ class TestHTCondorQueueConf:
         assert conf.request_memory == "4000"
         assert conf.request_cpus == "1"
         assert conf.request_gpus == "0"
-        assert conf.MaxTime == 8 * 60
+        assert conf.MaxTime == 28800  # 8 hours in seconds
         assert conf.requirements is None
+        assert conf.htcondor_folder == "${hydra.sweep.dir}/.htcondor"
 
     def test_target_class(self) -> None:
         """Test that _target_ points to correct class."""
