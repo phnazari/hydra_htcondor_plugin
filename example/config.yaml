@@ -1,0 +1,20 @@
+# Default hyperparameters
+learning_rate: 0.001
+batch_size: 32
+epochs: 10
+
+# Use HTCondor launcher for multirun
+defaults:
+    - override hydra/launcher: htcondor_launcher
+
+# Sweep configuration (3x3 = 9 jobs)
+hydra:
+    sweeper:
+        params:
+            learning_rate: 0.001, 0.01, 0.1
+            batch_size: 16, 32, 64
+
+    launcher:
+        request_memory: '4000'
+        request_cpus: '1'
+        request_gpus: '0'
